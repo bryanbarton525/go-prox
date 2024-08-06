@@ -4,60 +4,25 @@ import (
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
-	"embed"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/bryanbarton525/go-prox/config"
 )
 
-//go:embed config/certs/pve.pem
-var CertFile embed.FS
-
-func GetCertFile() ([]byte, error) {
-	return CertFile.ReadFile("config/certs/pve.pem")
-}
-
 func main() {
-
-	pveCA, err := GetCertFile()
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		log.Panic("Failed to read certificate:", err)
+		log.Fatalf("Error loading config: %v", err)
 	}
 
-	block, _ := pem.Decode(pveCA)
-	if block == nil {
-		log.Panic("Failed to parse PEM block containing the certificate")
-	}
-
-	pveurl := "https://pve.barton.local:8006/api2/json/nodes/pve/qemu"
+	pveurl := cfg.Proxmox.Url + ":" + cfg.Proxmox.Port + "/api2/json/nodes/pve/qemu"
 	method := "POST"
-
-	// Cloud-init YAML data (properly escaped for URL encoding)
-	// 	cloudInitData := `#cloud-config
-	// users:
-	//   - name: bbarton
-	//     sudo: ['ALL=(ALL) NOPASSWD:ALL']
-	//     ssh_authorized_keys:
-	//       - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCjK7D4W9JnLiPktPatb5P/MHXPUPa9Fn8wy42V0VJPjDdVjy+tDGMpK/rIY1DUqLwnl1d1Xv0XmwvtatBWOuVCEnLlJ7+lm/tZgErWOKF8/YzFJsmdoH76jqSawqOmAD3WN2tY8leKhJygpfkZz62l3VCUHLM30OzHOrny/D4sSt1Xc7K4qO1QlCFMBr64u0nyt7xHDRvWURgMr7sF4UU2o5FozLr+WunlfjgHCF1cM9LfVkD4lchOndSpRfNmbKd9mstTeIY+sXoPBNhg1zNQ/oDQjzos1CoUbLO9/tJYD47ysAacHb1jzBsaJGFauQWz8d4B1S1My4ssKQsSQbVB6xmgq+qkqwsdtHinG/1yBYWAXMwNTgXtDtmN11JlHf++RWARYlogxNvpZxb4Sa60OTVaJXaG7KhMM+93iE/dNMRPHM5phMZXd4nwBG8mhH5a3FJpjR71kMhB+gCYpyCrITbNTY4EAqdrAIbzCibvJ3grlc++JMSX6VEPe7cepYk= bryanbarton@Bryans-MacBook-Pro.local
-	//     groups: sudo
-	//     shell: /bin/bash
-	// package_upgrade: true
-	// packages:
-	//   - vim
-	//   - git
-	//   - curl
-	// runcmd:
-	//   - [apt-get, update]
-	//   - [apt-get, install, -y, python3-pip]
-	//   - [pip3, install, ansible]
-	// `
-	// URL encode the YAML
-	// encodedCloudInitData := strings.ReplaceAll(cloudInitData, "\n", "\\n")
 
 	// VM Parameters (using a map for clarity)
 	params := map[string]string{
@@ -86,13 +51,15 @@ func main() {
 	payload := strings.NewReader(data.Encode())
 	// Load the server's certificate from a file or other source
 	certPool := x509.NewCertPool()
-	cert, err := x509.ParseCertificate(block.Bytes) // Replace pemData with the certificate data
+
+	// Load the certificate
+	pveCA, err := config.LoadCertificate()
 	if err != nil {
 		// Handle the error
 		fmt.Println("Failed to parse certificate:", err)
 		return
 	}
-	certPool.AddCert(cert)
+	certPool.AddCert(pveCA)
 
 	// Create a transport with the custom certificate pool
 	tr := &http.Transport{
